@@ -8,7 +8,7 @@
 [![LLVM](https://img.shields.io/badge/Powered_by-LLVM-1e293b?logo=llvm)](https://llvm.org/)
 [![MLIR](https://img.shields.io/badge/Powered_by-MLIR-1e293b)](https://mlir.llvm.org/)
 [![Rust](https://img.shields.io/badge/Frontend-Rust-black?logo=rust)](https://www.rust-lang.org/)
-[![CUDA](https://img.shields.io/badge/Backend-CUDA-76b900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit)
+[![GPU](https://img.shields.io/badge/Backend-Universal_GPU-76b900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit)
 
 **[Documentation](docs/) • [Architecture](docs/ARCHITECTURE.md) • [Contributing](docs/CONTRIBUTING.md) • [Roadmap](docs/roadmap.md)**
 
@@ -16,7 +16,7 @@
 
 ---
 
-Taria is a next-generation, high-performance Domain-Specific Language (DSL) and compiler infrastructure built from the ground up for **extreme-scale semantic tensor compression**. By mapping a Python-like syntax down to raw NVPTX execution via MLIR, Taria brings neural latent-space encoding and AI-driven data reduction directly to the GPU substrate.
+Taria is a next-generation, high-performance Domain-Specific Language (DSL) and compiler infrastructure built from the ground up for **extreme-scale semantic tensor compression**. By mapping a Python-like syntax down to highly optimized GPU assembly (NVPTX, AMD ROCm, Apple Metal, SPIR-V) via MLIR, Taria brings neural latent-space encoding and AI-driven data reduction directly to **any modern GPU substrate**.
 
 ## 🔭 Vision
 
@@ -58,8 +58,8 @@ graph TD
 | **Frontend**                | Rust          | Zero-copy lexing, Pratt parsing, AST, Semantic Analysis |
 | **FFI Bridge**              | C ABI         | Panic-safe ownership transfer of AST to C++ backend |
 | **Intermediate Rep.**       | C++ / MLIR    | Optimization, kernel fusion, auto-tiling, dialect conversion |
-| **Backend**                 | C++ / LLVM    | NVVM lowering, register allocation, PTX code generation |
-| **Runtime**                 | CUDA / C++    | Async stream execution, pinned memory pooling |
+| **Backend**                 | C++ / LLVM    | Lowering to PTX, AMDGCN, or SPIR-V, register allocation |
+| **Runtime**                 | Universal C++ | Async stream execution, pinned memory pooling across hardware |
 
 ---
 
@@ -145,8 +145,8 @@ make -j$(nproc)
 3. **MLIR Transformation (C++)**:
    - **AST to Taria Dialect**: The syntax tree is mapped to high-level operations (`taria.encode`, `taria.quantize`).
    - **Taria to Linalg/GPU**: Operations are decomposed into standard MLIR linear algebra blocks and GPU launch domains.
-4. **LLVM Codegen**: The Standard GPU dialect is lowered to NVVM, heavily optimized by LLVM passes, and finally emitted as a CUDA PTX binary.
-5. **Execution**: The lightweight CUDA runtime schedules the PTX binaries onto async streams utilizing zero-copy pinned memory.
+4. **LLVM Codegen**: The Standard GPU dialect is lowered to the target hardware architecture (e.g., NVVM for NVIDIA, AMDGCN for ROCm), heavily optimized by LLVM passes, and finally emitted as device assembly.
+5. **Execution**: The lightweight, hardware-agnostic runtime schedules the generated binaries onto async streams utilizing zero-copy pinned memory where applicable.
 
 ### Example MLIR Lowering
 The snippet from earlier is initially represented in the MLIR `taria` dialect:
@@ -174,7 +174,7 @@ To hit extreme compression throughputs at native hardware speeds, Taria is engin
 
 Taria is actively evolving. Our roadmap to `v1.0` includes:
 
-- [ ] **AMD ROCm / Vulkan Backends**: Expanding beyond NVIDIA hardware.
+- [ ] **Intel & Apple Silicon Backends**: First-class support for Intel GPUs and Apple Metal.
 - [ ] **JIT Compilation Runtime**: Dynamic compilation for varying tensor shapes (similar to PyTorch Inductor).
 - [ ] **Distributed GPU Execution**: Native syntax for tensor sharding across NCCL rings.
 - [ ] **AI-Guided Auto-Tuning**: Neural cost models to predict optimal block sizes and memory layouts during MLIR lowering.
