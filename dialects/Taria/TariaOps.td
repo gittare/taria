@@ -31,6 +31,36 @@ def Taria_CompressOp : Taria_Op<"compress", [Pure]> {
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($latent)";
 }
 
+def Taria_EntropyModelOp : Taria_Op<"entropy_model", [Pure]> {
+  let summary = "Applies a learned entropy model to a latent tensor.";
+  let description = [{
+    The `entropy_model` operation estimates the probability distribution of
+    the quantized latents to generate a highly compressed bitstream. It is
+    a cornerstone of semantic AI compression pipelines.
+  }];
+  let arguments = (ins AnyTensor:$latent, AnyTensor:$cdf);
+  let results = (outs AnyTensor:$bitstream);
+  let assemblyFormat = "$latent `,` $cdf attr-dict `:` type($latent) `,` type($cdf) `->` type($bitstream)";
+}
+
+def Taria_VectorQuantizerOp : Taria_Op<"vector_quantize", [Pure]> {
+  let summary = "Performs VQ on a latent vector against a learned codebook.";
+  let description = [{
+    The `vector_quantize` operation maps continuous vectors to the nearest
+    discrete representations found in the provided codebook tensor.
+  }];
+  let arguments = (ins AnyTensor:$latent, AnyTensor:$codebook);
+  let results = (outs AnyTensor:$quantized, AnyTensor:$indices);
+  let assemblyFormat = "$latent `,` $codebook attr-dict `:` type($latent) `,` type($codebook) `->` type($quantized) `,` type($indices)";
+}
+
+def Taria_TensorTilingOp : Taria_Op<"tensor_tile", [Pure]> {
+  let summary = "Declares an explicit tile map for semantic data chunking.";
+  let arguments = (ins AnyTensor:$input, I64ArrayAttr:$tile_sizes);
+  let results = (outs AnyTensor:$tiled);
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($tiled)";
+}
+
 def Taria_EncodeOp : Taria_Op<"encode", [Pure]> {
   let summary = "Encodes a tensor using an autoencoder model.";
   let arguments = (ins AnyTensor:$input);
