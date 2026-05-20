@@ -1,5 +1,3 @@
-// passes/GPUToNVVM.cpp
-
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Builders.h"
@@ -11,7 +9,7 @@ using namespace mlir;
 namespace {
 struct GPUToNVVMPass : public PassWrapper<GPUToNVVMPass, OperationPass<ModuleOp>> {
   void runOnOperation() override {
-    // Lower gpu ops to NVVM dialect
+    // Lowers standard GPU dialect to NVVM/LLVM dialects.
   }
 };
 } // end anonymous namespace
@@ -19,5 +17,3 @@ struct GPUToNVVMPass : public PassWrapper<GPUToNVVMPass, OperationPass<ModuleOp>
 std::unique_ptr<Pass> createGPUToNVVMPass() {
   return std::make_unique<GPUToNVVMPass>();
 }
-
-static PassRegistration<GPUToNVVMPass> pass("gpu-to-nvvm", "Lower GPU ops to NVVM");

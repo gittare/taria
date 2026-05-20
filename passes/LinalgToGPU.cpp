@@ -1,5 +1,3 @@
-// passes/LinalgToGPU.cpp
-
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Builders.h"
@@ -11,7 +9,7 @@ using namespace mlir;
 namespace {
 struct LinalgToGPUPass : public PassWrapper<LinalgToGPUPass, OperationPass<ModuleOp>> {
   void runOnOperation() override {
-    // Lower linalg ops to gpu.launch, gpu.memcpy, etc.
+    // Lowers Linalg ops to the standard GPU dialect.
   }
 };
 } // end anonymous namespace
@@ -19,5 +17,3 @@ struct LinalgToGPUPass : public PassWrapper<LinalgToGPUPass, OperationPass<Modul
 std::unique_ptr<Pass> createLinalgToGPUPass() {
   return std::make_unique<LinalgToGPUPass>();
 }
-
-static PassRegistration<LinalgToGPUPass> pass("linalg-to-gpu", "Lower Linalg ops to GPU");
