@@ -1,0 +1,8 @@
+[package]
+name = "tariac"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+frontend = { path = "../../frontend" }
+ffi = { path = "../../ffi" }

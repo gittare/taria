@@ -1,0 +1,8 @@
+[package]
+name = "frontend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Add bumpalo or typed-arena for arena allocation
+bumpalo = "3"

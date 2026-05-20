@@ -1,0 +1,5 @@
+# Example Taria program for compression
+@gpu.kernel(block_size=256)
+def compress_chunk(chunk: Tensor) -> CompressedChunk:
+    latent = encoder(chunk)
+    return quantize(latent)
