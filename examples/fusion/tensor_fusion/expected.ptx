@@ -1,0 +1,32 @@
+// Expected PTX Assembly snippet representing the kernel fusion
+.visible .entry scale_and_shift_kernel(
+	.param .u64 param_0, // input memref
+	.param .f32 param_1, // scale
+	.param .f32 param_2, // shift
+	.param .u64 param_3  // out memref
+)
+{
+	.reg .b32 	%r<5>;
+	.reg .b64 	%rd<10>;
+	.reg .f32 	%f<10>;
+
+	// Calculate thread ID (Coalesced access pattern)
+	mov.u32 	%r1, %ctaid.x;
+	mov.u32 	%r2, %ntid.x;
+	mov.u32 	%r3, %tid.x;
+	mad.lo.s32 	%r4, %r1, %r2, %r3;
+	cvt.s64.s32	%rd1, %r4;
+
+	// Address calculation
+	shl.b64 	%rd2, %rd1, 2;
+
+	// Load Input (Single 128-byte coalesced warp transaction)
+	ld.global.f32 	%f1, [%rd2+param_0];
+
+	// Fused Multiply Add (Hardware level fusion)
+	fma.rn.f32 	%f2, %f1, param_1, param_2;
+
+	// Store Output
+	st.global.f32 	[%rd2+param_3], %f2;
+	ret;
+}
