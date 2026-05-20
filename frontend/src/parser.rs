@@ -1,18 +1,26 @@
 //! Taria Parser: Recursive descent + Pratt for expressions
 
-use crate::lexer::{Lexer, Token, TokenKind};
+use crate::lexer::Lexer;
+use crate::token::{Token, TokenKind};
 use crate::ast::*;
+use crate::source_map::Span;
+use crate::diagnostics::{DiagnosticsEngine, Diagnostic, Level};
 
 pub struct Parser<'src> {
     lexer: Lexer<'src>,
     current: Option<Token<'src>>,
+    pub diagnostics: DiagnosticsEngine,
 }
 
 impl<'src> Parser<'src> {
     pub fn new(src: &'src str) -> Self {
         let mut lexer = Lexer::new(src);
         let current = lexer.next_token();
-        Parser { lexer, current }
+        Parser {
+            lexer,
+            current,
+            diagnostics: DiagnosticsEngine::new()
+        }
     }
 
     fn bump(&mut self) {
@@ -27,34 +35,51 @@ impl<'src> Parser<'src> {
         }
     }
 
+    fn span(&self) -> Span {
+        self.current.as_ref().map(|t| t.span).unwrap_or(Span::default())
+    }
+
+    fn expect(&mut self, kind: TokenKind) -> bool {
+        if self.current_is(kind.clone()) {
+            self.bump();
+            true
+        } else {
+            let span = self.span();
+            self.diagnostics.emit(
+                Diagnostic::new(Level::Error, format!("Expected {:?}", kind))
+                .with_span(span)
+                .with_help("Check syntax")
+            );
+            false
+        }
+    }
+
     pub fn parse_module(&mut self) -> ModuleAST {
         let mut functions = Vec::new();
+        let start = self.span().lo;
 
         while !self.current_is(TokenKind::Eof) {
-            // A real parser would handle module-level statements and errors here
-            if self.current_is(TokenKind::At) || self.current_is(TokenKind::Keyword) {
+            if self.current_is(TokenKind::At) || self.current_is(TokenKind::Def) {
                 functions.push(self.parse_function());
             } else {
-                // Error recovery: bump if we don't know what it is at top level
+                // Skip unknown tokens at top level
                 self.bump();
             }
         }
 
-        ModuleAST { functions, span: 0..0 }
+        let end = self.span().hi;
+        ModuleAST { functions, span: Span::new(start, end) }
     }
 
     fn parse_function(&mut self) -> FunctionDecl {
-        let start = self.current.as_ref().map(|t| t.span.start).unwrap_or(0);
+        let start = self.span().lo;
         let mut decorators = Vec::new();
 
         while self.current_is(TokenKind::At) {
             decorators.push(self.parse_decorator());
         }
 
-        // expect 'def' (Keyword)
-        if self.current_is(TokenKind::Keyword) {
-             self.bump(); // consume 'def'
-        }
+        self.expect(TokenKind::Def);
 
         let mut name = String::new();
         if self.current_is(TokenKind::Identifier) {
@@ -64,10 +89,8 @@ impl<'src> Parser<'src> {
             self.bump();
         }
 
-        // expect '('
-        if self.current_is(TokenKind::LParen) { self.bump(); }
+        self.expect(TokenKind::LParen);
 
-        // simple param parsing for demo
         let mut params = Vec::new();
         while self.current_is(TokenKind::Identifier) {
             let mut param_name = String::new();
@@ -79,14 +102,14 @@ impl<'src> Parser<'src> {
             let mut ty = None;
             if self.current_is(TokenKind::Colon) {
                 self.bump();
-                if self.current_is(TokenKind::Identifier) {
+                if self.current_is(TokenKind::Identifier) || self.current_is(TokenKind::Tensor) {
                     if let Some(ref t) = self.current {
                         ty = Some(t.slice.to_string());
                     }
                     self.bump();
                 }
             }
-            params.push(Parameter { name: param_name, ty, span: 0..0 });
+            params.push(Parameter { name: param_name, ty, span: Span::default() });
 
             if self.current_is(TokenKind::Comma) {
                 self.bump();
@@ -95,13 +118,12 @@ impl<'src> Parser<'src> {
             }
         }
 
-        // expect ')'
-        if self.current_is(TokenKind::RParen) { self.bump(); }
+        self.expect(TokenKind::RParen);
 
         let mut return_type = None;
         if self.current_is(TokenKind::Arrow) {
             self.bump();
-            if self.current_is(TokenKind::Identifier) {
+            if self.current_is(TokenKind::Identifier) || self.current_is(TokenKind::Tensor) {
                 if let Some(ref t) = self.current {
                     return_type = Some(t.slice.to_string());
                 }
@@ -109,29 +131,35 @@ impl<'src> Parser<'src> {
             }
         }
 
-        // expect ':'
-        if self.current_is(TokenKind::Colon) { self.bump(); }
+        self.expect(TokenKind::Colon);
 
         let mut body = Vec::new();
-        // naive block parsing: just try to parse statements until dedent or end
-        // for demo, we'll just parse one statement if it's a return
 
         if self.current_is(TokenKind::Newline) { self.bump(); }
 
-        while self.current_is(TokenKind::Keyword) { // e.g. return
-            if let Some(ref t) = self.current {
-                if t.slice == "return" {
+        while !self.current_is(TokenKind::Eof) && !self.current_is(TokenKind::Def) && !self.current_is(TokenKind::At) {
+            if self.current_is(TokenKind::Return) {
+                self.bump();
+                let expr = self.parse_expr(0);
+                body.push(Stmt { kind: StmtKind::Return(expr), span: Span::default() });
+            } else if self.current_is(TokenKind::Identifier) {
+                // Very basic parsing for assignment or expr
+                let name = self.current.as_ref().unwrap().slice.to_string();
+                self.bump();
+                if self.current_is(TokenKind::Assign) {
                     self.bump();
                     let expr = self.parse_expr(0);
-                    body.push(Stmt { kind: StmtKind::Return(expr), span: 0..0 });
-                    break; // break for demo
+                    body.push(Stmt { kind: StmtKind::Let { name, expr }, span: Span::default() });
                 } else {
-                    self.bump(); // skip other keywords
+                    let expr = Expr { kind: ExprKind::Identifier(name), span: Span::default() };
+                    body.push(Stmt { kind: StmtKind::Expr(expr), span: Span::default() });
                 }
+            } else {
+                self.bump();
             }
         }
 
-        let end = self.current.as_ref().map(|t| t.span.end).unwrap_or(0);
+        let end = self.span().hi;
 
         FunctionDecl {
             name,
@@ -139,18 +167,19 @@ impl<'src> Parser<'src> {
             params,
             return_type,
             body,
-            span: start..end,
+            span: Span::new(start, end),
         }
     }
 
     fn parse_decorator(&mut self) -> Decorator {
-        let start = self.current.as_ref().map(|t| t.span.start).unwrap_or(0);
+        let start = self.span().lo;
         self.bump(); // consume '@'
 
         let mut name = String::new();
-        if self.current_is(TokenKind::Identifier) {
+        // Decorator name might be complex e.g. gpu.kernel
+        while self.current_is(TokenKind::Identifier) || self.current_is(TokenKind::Dot) {
             if let Some(ref t) = self.current {
-                name = t.slice.to_string();
+                name.push_str(t.slice);
             }
             self.bump();
         }
@@ -158,25 +187,23 @@ impl<'src> Parser<'src> {
         let mut args = Vec::new();
         if self.current_is(TokenKind::LParen) {
             self.bump();
-            // skip to )
             while !self.current_is(TokenKind::RParen) && !self.current_is(TokenKind::Eof) {
-                self.bump();
+                self.bump(); // simplistic skipping for args
             }
             if self.current_is(TokenKind::RParen) { self.bump(); }
         }
 
-        let end = self.current.as_ref().map(|t| t.span.end).unwrap_or(0);
+        let end = self.span().hi;
 
         Decorator {
             name,
             args,
-            span: start..end,
+            span: Span::new(start, end),
         }
     }
 
-    // Pratt parser for expressions (stubbed)
     fn parse_expr(&mut self, _min_prec: u8) -> Expr {
-        let start = self.current.as_ref().map(|t| t.span.start).unwrap_or(0);
+        let start = self.span().lo;
         let mut kind = ExprKind::Literal("".into());
 
         if self.current_is(TokenKind::Identifier) {
@@ -184,11 +211,29 @@ impl<'src> Parser<'src> {
                 kind = ExprKind::Identifier(t.slice.to_string());
             }
             self.bump();
+
+            // Check for Call
+            if self.current_is(TokenKind::LParen) {
+                self.bump();
+                let mut args = Vec::new();
+                if self.current_is(TokenKind::Identifier) {
+                    let name = self.current.as_ref().unwrap().slice.to_string();
+                    args.push(Expr { kind: ExprKind::Identifier(name), span: Span::default() });
+                    self.bump();
+                }
+                if self.current_is(TokenKind::RParen) { self.bump(); }
+
+                let func_expr = Expr { kind: kind.clone(), span: Span::default() };
+                kind = ExprKind::Call { func: Box::new(func_expr), args };
+            }
+        } else if self.current_is(TokenKind::Integer) || self.current_is(TokenKind::Float) {
+            if let Some(ref t) = self.current {
+                kind = ExprKind::Literal(t.slice.to_string());
+            }
+            self.bump();
         }
 
-        // ... implementation of pratt loop ...
-
-        let end = self.current.as_ref().map(|t| t.span.end).unwrap_or(0);
-        Expr { kind, span: start..end }
+        let end = self.span().hi;
+        Expr { kind, span: Span::new(start, end) }
     }
 }

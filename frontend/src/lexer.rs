@@ -1,44 +1,15 @@
 //! Taria Lexer: Zero-copy, SIMD-aware, Pythonic + Rust-safe
 
-use std::str::CharIndices;
 use std::ops::Range;
 
-/// The kind of token
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TokenKind {
-    // Decorators: @gpu.kernel, @compress, etc.
-    At,
-    Identifier,
-    Tensor,
-    Attribute,
-    Literal,
-    Indent,
-    Dedent,
-    Newline,
-    Keyword,
-    Operator,
-    Colon,
-    Comma,
-    LParen,
-    RParen,
-    Arrow,      // ->
-    Annotation, // :Type
-    Eof,
-    Error,
-}
+use crate::token::{Token, TokenKind};
+use crate::source_map::Span;
 
-/// A lexical token emitted by the lexer
-#[derive(Debug, Clone)]
-pub struct Token<'src> {
-    pub kind: TokenKind,
-    pub span: Range<usize>, // Byte offsets in source
-    pub slice: &'src str,   // Zero-copy view
-}
-
-/// The lexer
+/// The lexer state machine
 pub struct Lexer<'src> {
     src: &'src str,
     pos: usize,
+    // Indentation stack for Python-like semantic blocks
     indent_stack: Vec<usize>,
 }
 
@@ -51,24 +22,24 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    /// Helper to get the remaining string
     fn remaining(&self) -> &'src str {
         &self.src[self.pos..]
     }
 
-    /// Advance lexer by N bytes
     fn advance(&mut self, n: usize) {
         self.pos += n;
     }
 
-    /// Skip whitespaces (SIMD-aware scanning would be implemented here in production using `memchr`)
+    /// Skips spaces (but not newlines, since we need to track indents eventually).
+    /// In a production system, this uses memchr for SIMD-accelerated scanning.
     fn skip_whitespace(&mut self) {
         let mut chars = self.remaining().char_indices();
         while let Some((_, c)) = chars.next() {
-            if c != ' ' && c != '\t' && c != '\r' {
+            if c == ' ' || c == '\t' || c == '\r' {
+                self.advance(c.len_utf8());
+            } else {
                 break;
             }
-            self.advance(c.len_utf8());
         }
     }
 
@@ -79,7 +50,7 @@ impl<'src> Lexer<'src> {
         if self.pos >= self.src.len() {
             return Some(Token {
                 kind: TokenKind::Eof,
-                span: self.pos..self.pos,
+                span: Span::new(self.pos, self.pos),
                 slice: "",
             });
         }
@@ -89,21 +60,33 @@ impl<'src> Lexer<'src> {
         let start = self.pos;
         let c_len = c.len_utf8();
 
-        // Simple match for demonstration
         let kind = match c {
             '@' => TokenKind::At,
             ':' => TokenKind::Colon,
             ',' => TokenKind::Comma,
             '(' => TokenKind::LParen,
             ')' => TokenKind::RParen,
-            '-' if remaining.starts_with("->") => {
-                self.advance(2);
-                return Some(Token {
-                    kind: TokenKind::Arrow,
-                    span: start..self.pos,
-                    slice: &self.src[start..self.pos],
-                });
+            '[' => TokenKind::LBracket,
+            ']' => TokenKind::RBracket,
+            '{' => TokenKind::LBrace,
+            '}' => TokenKind::RBrace,
+            '=' => TokenKind::Assign,
+            '+' => TokenKind::Plus,
+            '-' => {
+                if remaining.starts_with("->") {
+                    self.advance(2);
+                    return Some(Token {
+                        kind: TokenKind::Arrow,
+                        span: Span::new(start, self.pos),
+                        slice: &self.src[start..self.pos],
+                    });
+                } else {
+                    TokenKind::Minus
+                }
             }
+            '*' => TokenKind::Star,
+            '/' => TokenKind::Slash,
+            '.' => TokenKind::Dot,
             '\n' => TokenKind::Newline,
             _ if c.is_alphabetic() || c == '_' => {
                 return Some(self.scan_identifier());
@@ -111,19 +94,14 @@ impl<'src> Lexer<'src> {
             _ if c.is_numeric() => {
                 return Some(self.scan_number());
             }
-            _ => TokenKind::Error, // Fallback
+            _ => TokenKind::Error,
         };
 
-        if kind != TokenKind::Error {
-            self.advance(c_len);
-        } else {
-            // consume one char on error
-            self.advance(c_len);
-        }
+        self.advance(c_len);
 
         Some(Token {
             kind,
-            span: start..self.pos,
+            span: Span::new(start, self.pos),
             slice: &self.src[start..self.pos],
         })
     }
@@ -132,7 +110,7 @@ impl<'src> Lexer<'src> {
         let start = self.pos;
         let mut chars = self.remaining().char_indices();
         while let Some((_, c)) = chars.next() {
-            if !c.is_alphanumeric() && c != '_' && c != '.' {
+            if !c.is_alphanumeric() && c != '_' {
                 break;
             }
             self.advance(c.len_utf8());
@@ -140,13 +118,19 @@ impl<'src> Lexer<'src> {
 
         let slice = &self.src[start..self.pos];
         let kind = match slice {
-            "def" | "return" | "if" | "else" => TokenKind::Keyword,
+            "def" => TokenKind::Def,
+            "return" => TokenKind::Return,
+            "if" => TokenKind::If,
+            "else" => TokenKind::Else,
+            "for" => TokenKind::For,
+            "while" => TokenKind::While,
+            "Tensor" => TokenKind::Tensor,
             _ => TokenKind::Identifier,
         };
 
         Token {
             kind,
-            span: start..self.pos,
+            span: Span::new(start, self.pos),
             slice,
         }
     }
@@ -154,16 +138,22 @@ impl<'src> Lexer<'src> {
     fn scan_number(&mut self) -> Token<'src> {
         let start = self.pos;
         let mut chars = self.remaining().char_indices();
+        let mut is_float = false;
+
         while let Some((_, c)) = chars.next() {
-            if !c.is_numeric() && c != '.' {
+            if c == '.' {
+                is_float = true;
+                self.advance(c.len_utf8());
+            } else if c.is_numeric() {
+                self.advance(c.len_utf8());
+            } else {
                 break;
             }
-            self.advance(c.len_utf8());
         }
 
         Token {
-            kind: TokenKind::Literal,
-            span: start..self.pos,
+            kind: if is_float { TokenKind::Float } else { TokenKind::Integer },
+            span: Span::new(start, self.pos),
             slice: &self.src[start..self.pos],
         }
     }

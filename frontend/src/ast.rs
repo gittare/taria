@@ -1,8 +1,6 @@
 //! Taria AST: Immutable, arena-allocated (conceptually), source-mapped
 
-use std::ops::Range;
-
-pub type Span = Range<usize>;
+use crate::source_map::Span;
 
 #[derive(Debug, Clone)]
 pub enum ExprKind {
@@ -61,36 +59,4 @@ pub struct Stmt {
 pub struct ModuleAST {
     pub functions: Vec<FunctionDecl>,
     pub span: Span,
-}
-
-/// Visitor pattern for AST traversal
-pub trait AstVisitor {
-    fn visit_module(&mut self, module: &ModuleAST) {
-        for func in &module.functions {
-            self.visit_function(func);
-        }
-    }
-
-    fn visit_function(&mut self, func: &FunctionDecl) {
-        for stmt in &func.body {
-            self.visit_stmt(stmt);
-        }
-    }
-
-    fn visit_stmt(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
-            StmtKind::Return(expr) => self.visit_expr(expr),
-            StmtKind::Let { expr, .. } => self.visit_expr(expr),
-            StmtKind::Expr(expr) => self.visit_expr(expr),
-        }
-    }
-
-    fn visit_expr(&mut self, expr: &Expr) {
-        if let ExprKind::Call { func, args } = &expr.kind {
-            self.visit_expr(func);
-            for arg in args {
-                self.visit_expr(arg);
-            }
-        }
-    }
 }

@@ -24,11 +24,15 @@ def Taria_Dialect : Dialect {
 class Taria_Op<string mnemonic, list<Trait> traits = []> :
     Op<Taria_Dialect, mnemonic, traits>;
 
-def Taria_CompressOp : Taria_Op<"compress", [Pure]> {
+def Taria_CompressOp : Taria_Op<"compress", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Compresses a tensor into a latent representation.";
+  let description = [{
+    A macro-operation that fuses neural encoding, vector quantization, and entropy modeling
+    into a single optimized GPU pipeline.
+  }];
   let arguments = (ins AnyTensor:$input);
-  let results = (outs AnyTensor:$latent);
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($latent)";
+  let results = (outs AnyTensor:$bitstream);
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($bitstream)";
 }
 
 def Taria_EntropyModelOp : Taria_Op<"entropy_model", [Pure]> {
@@ -82,10 +86,16 @@ def Taria_QuantizeOp : Taria_Op<"quantize", [Pure]> {
   let assemblyFormat = "$latent attr-dict `:` type($latent) `->` type($quantized)";
 }
 
-def Taria_GPUKernelOp : Taria_Op<"gpu_kernel", []> {
-  let summary = "Defines a Taria GPU kernel.";
+def Taria_GPUKernelOp : Taria_Op<"gpu_kernel", [IsolatedFromAbove]> {
+  let summary = "Defines a Taria GPU kernel with explicit blocking and shared memory constraints.";
+  let description = [{
+    The `gpu_kernel` operation wraps a region of compute designed for direct NVPTX generation.
+    It carries attributes for `block_size` and `shared_mem_bytes` to inform occupancy
+    calculations and auto-tiling optimizations.
+  }];
+  let arguments = (ins I32Attr:$block_size, I32Attr:$shared_mem_bytes);
   let regions = (region AnyRegion:$body);
-  // simplified for bootstrapping
+  let assemblyFormat = "`block_size` `(` $block_size `)` `shared_mem_bytes` `(` $shared_mem_bytes `)` $body attr-dict";
 }
 
 def Taria_ReturnOp : Taria_Op<"return", [Terminator]> {

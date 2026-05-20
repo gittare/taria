@@ -3,6 +3,7 @@
 #include <vector>
 #include <stdexcept>
 #include <mutex>
+#include <unordered_map>
 
 #define CUDA_CHECK(err) \
     if (err != cudaSuccess) { \
@@ -12,11 +13,11 @@
 namespace taria {
 namespace runtime {
 
-/// Represents a CUDA stream for async execution
+/// Advanced Asynchronous Execution Stream
 class Stream {
 public:
     Stream() {
-        CUDA_CHECK(cudaStreamCreate(&stream_));
+        CUDA_CHECK(cudaStreamCreateWithFlags(&stream_, cudaStreamNonBlocking));
     }
 
     ~Stream() {
@@ -33,26 +34,48 @@ private:
     cudaStream_t stream_;
 };
 
-/// A simple thread-safe pinned memory allocator/pool concept
-class PinnedAllocator {
+/// High-performance memory pool leveraging Unified Memory / Pinned Pages
+/// designed for zero-copy PCIe transfers required by massive tensors.
+class MemoryPool {
 public:
-    void* allocate(size_t size) {
+    void* allocate_pinned(size_t size) {
         std::lock_guard<std::mutex> lock(mutex_);
+        // If we have a cached chunk of sufficient size, return it
+        for (auto it = free_pinned_.begin(); it != free_pinned_.end(); ++it) {
+            if (it->second >= size) {
+                void* ptr = it->first;
+                free_pinned_.erase(it);
+                return ptr;
+            }
+        }
+
+        // Otherwise, allocate new pinned memory (HostAllocMapped for ZeroCopy)
         void* ptr;
-        CUDA_CHECK(cudaMallocHost(&ptr, size));
+        CUDA_CHECK(cudaHostAlloc(&ptr, size, cudaHostAllocMapped));
+        allocated_sizes_[ptr] = size;
         return ptr;
     }
 
-    void deallocate(void* ptr) {
+    void deallocate_pinned(void* ptr) {
         std::lock_guard<std::mutex> lock(mutex_);
-        CUDA_CHECK(cudaFreeHost(ptr));
+        if (allocated_sizes_.find(ptr) != allocated_sizes_.end()) {
+            free_pinned_.push_back({ptr, allocated_sizes_[ptr]});
+        }
+    }
+
+    ~MemoryPool() {
+        for (const auto& pair : allocated_sizes_) {
+            cudaFreeHost(pair.first);
+        }
     }
 
 private:
     std::mutex mutex_;
+    std::unordered_map<void*, size_t> allocated_sizes_;
+    std::vector<std::pair<void*, size_t>> free_pinned_;
 };
 
-/// High-level scheduler for submitting kernel tasks to streams
+/// High-level scheduler for dispatching Taria PTX closures
 class Scheduler {
 public:
     Scheduler(int num_streams) {
@@ -61,11 +84,9 @@ public:
         }
     }
 
-    Stream* get_stream(int index) {
-        if (index < 0 || index >= streams_.size()) {
-            return nullptr;
-        }
-        return streams_[index].get();
+    Stream* get_next_stream() {
+        int idx = current_stream_idx_++ % streams_.size();
+        return streams_[idx].get();
     }
 
     void wait_all() {
@@ -76,24 +97,30 @@ public:
 
 private:
     std::vector<std::unique_ptr<Stream>> streams_;
+    std::atomic<int> current_stream_idx_{0};
 };
+
+// Global Runtime State
+static MemoryPool G_MEMORY_POOL;
+static Scheduler* G_SCHEDULER = nullptr;
 
 } // namespace runtime
 } // namespace taria
 
 extern "C" {
-    // C API for FFI integration with Rust
-    void* taria_stream_create() {
-        return new taria::runtime::Stream();
+    void taria_runtime_init(int num_streams) {
+        taria::runtime::G_SCHEDULER = new taria::runtime::Scheduler(num_streams);
     }
 
-    void taria_stream_sync(void* stream_ptr) {
-        auto* stream = static_cast<taria::runtime::Stream*>(stream_ptr);
-        stream->synchronize();
+    void taria_runtime_shutdown() {
+        delete taria::runtime::G_SCHEDULER;
     }
 
-    void taria_stream_destroy(void* stream_ptr) {
-        auto* stream = static_cast<taria::runtime::Stream*>(stream_ptr);
-        delete stream;
+    void* taria_alloc_tensor_host(size_t size_bytes) {
+        return taria::runtime::G_MEMORY_POOL.allocate_pinned(size_bytes);
+    }
+
+    void taria_free_tensor_host(void* ptr) {
+        taria::runtime::G_MEMORY_POOL.deallocate_pinned(ptr);
     }
 }

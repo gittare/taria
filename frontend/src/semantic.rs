@@ -1,13 +1,11 @@
 //! Taria Semantic Analysis: Type checking, Name resolution, and Semantic Validation
 //!
 //! This module performs pass 2 of the frontend compiler pipeline.
-//! It takes the raw, untyped AST and performs:
-//! - Symbol resolution
-//! - Type inference and checking (especially for Tensor shapes and types)
-//! - GPU Kernel validation (e.g., ensuring `@gpu.kernel` constraints are met)
 
-use std::collections::HashMap;
 use crate::ast::*;
+use crate::symbol_table::SymbolTable;
+use crate::diagnostics::{DiagnosticsEngine, Diagnostic, Level};
+use crate::source_map::Span;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Type {
@@ -22,50 +20,16 @@ pub enum Type {
     Unknown,
 }
 
-#[derive(Debug)]
-pub struct SymbolTable {
-    scopes: Vec<HashMap<String, Type>>,
-}
-
-impl SymbolTable {
-    pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()] }
-    }
-
-    pub fn enter_scope(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    pub fn exit_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    pub fn insert(&mut self, name: String, ty: Type) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, ty);
-        }
-    }
-
-    pub fn lookup(&self, name: &str) -> Option<Type> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(ty) = scope.get(name) {
-                return Some(ty.clone());
-            }
-        }
-        None
-    }
-}
-
 pub struct SemanticAnalyzer {
-    sym_table: SymbolTable,
-    pub errors: Vec<String>,
+    pub sym_table: SymbolTable,
+    pub diagnostics: DiagnosticsEngine,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
             sym_table: SymbolTable::new(),
-            errors: Vec::new(),
+            diagnostics: DiagnosticsEngine::new(),
         }
     }
 
@@ -81,7 +45,7 @@ impl SemanticAnalyzer {
         // Check decorators for GPU constraints
         let is_kernel = func.decorators.iter().any(|d| d.name == "gpu.kernel");
         if is_kernel {
-            // Future: Validate block_size, shared_mem arguments
+            // Future: Validate block_size, shared_mem arguments via AST
         }
 
         // Register parameters
@@ -121,7 +85,11 @@ impl SemanticAnalyzer {
                 match self.sym_table.lookup(name) {
                     Some(ty) => ty,
                     None => {
-                        self.errors.push(format!("Undefined variable: {}", name));
+                        self.diagnostics.emit(
+                            Diagnostic::new(Level::Error, format!("Undefined variable: `{}`", name))
+                            .with_span(expr.span)
+                            .with_help("Verify the variable is declared before use.")
+                        );
                         Type::Unknown
                     }
                 }
@@ -131,7 +99,6 @@ impl SemanticAnalyzer {
                 for arg in args {
                     self.analyze_expr(arg);
                 }
-                // Future: Lookup function signature and return actual type
                 Type::Tensor(Box::new(Type::Float32), vec![32, 32]) // Stub
             }
             ExprKind::Tensor(_) => {
@@ -142,7 +109,7 @@ impl SemanticAnalyzer {
 
     fn parse_type(&self, ty_str: &Option<String>) -> Type {
         match ty_str {
-            Some(s) if s == "Tensor" => Type::Tensor(Box::new(Type::Float32), vec![]),
+            Some(s) if s.starts_with("Tensor") => Type::Tensor(Box::new(Type::Float32), vec![]), // basic approximation
             Some(s) if s == "CompressedChunk" => Type::Tensor(Box::new(Type::Int8), vec![]),
             _ => Type::Unknown,
         }
