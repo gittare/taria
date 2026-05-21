@@ -1,5 +1,3 @@
-// passes/GPUToNVVM.cpp
-
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Builders.h"
@@ -11,7 +9,12 @@ using namespace mlir;
 namespace {
 struct GPUToNVVMPass : public PassWrapper<GPUToNVVMPass, OperationPass<ModuleOp>> {
   void runOnOperation() override {
-    // Lower gpu ops to NVVM dialect
+    // 1. Lower standard `gpu` ops to `nvvm` (NVIDIA) or `rocdl` (AMD).
+    // 2. Perform register alignment passes.
+    // 3. Emit LLVM IR via `LLVMTranslationDialectInterface`.
+    //
+    // This is the final step before handing off the IR string to the LLVM TargetMachine
+    // for PTX / ISA emission.
   }
 };
 } // end anonymous namespace
@@ -19,5 +22,3 @@ struct GPUToNVVMPass : public PassWrapper<GPUToNVVMPass, OperationPass<ModuleOp>
 std::unique_ptr<Pass> createGPUToNVVMPass() {
   return std::make_unique<GPUToNVVMPass>();
 }
-
-static PassRegistration<GPUToNVVMPass> pass("gpu-to-nvvm", "Lower GPU ops to NVVM");

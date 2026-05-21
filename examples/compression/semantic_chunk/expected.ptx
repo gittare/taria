@@ -1,0 +1,28 @@
+// Expected PTX Assembly snippet representing the kernel fusion
+.visible .entry compress_chunk_kernel(
+	.param .u64 compress_chunk_kernel_param_0, // chunk
+	.param .u64 compress_chunk_kernel_param_1, // codebook
+	.param .u64 compress_chunk_kernel_param_2  // out_quantized
+)
+{
+	.reg .b32 	%r<10>;
+	.reg .b64 	%rd<15>;
+	.reg .f32 	%f<30>;
+    // 64KB Shared Memory allocation for Codebook
+	.shared .align 16 .b8 _codebook_smem[65536];
+
+	// Load codebook into shared memory (Thread Coalesced)
+	ld.global.f32 	%f1, [%rd1];
+	st.shared.f32 	[_codebook_smem+%r1], %f1;
+	bar.sync 	0;
+
+	// ... register-level MMA (Matrix Multiply Accumulate) for Neural Encoder ...
+
+	// Vector Quantization Nearest-Neighbor Search using Shared Memory
+	// Branchless search using select / min instructions
+	// ...
+
+	// Store final int8 output to Global Memory
+	st.global.u8 	[%rd14], %r5;
+	ret;
+}

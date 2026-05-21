@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "frontend",
     "ffi",
@@ -6,6 +7,12 @@ members = [
 ]
 
 [profile.release]
-lto = true
+lto = "thin"
 opt-level = 3
 debug = false
+codegen-units = 1
+panic = "abort" # Recommended for tighter FFI integration
+
+[profile.dev]
+opt-level = 0
+debug = true

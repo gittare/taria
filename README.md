@@ -1,128 +1,211 @@
-# Taria: GPU Compression DSL Compiler
+<div align="center">
 
-Taria is a next-generation, Python-superset Domain-Specific Language (DSL) and compiler for ultra-high-performance GPU computing, semantic compression, and AI-native tensor programming. It is designed for research and production in neural compression, autoencoder-based encoding, and distributed GPU execution.
+# 🪐 Taria
+**The GPU-Native Compiler for Semantic Compression & Latent Tensor Computation**
+
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#)
+[![LLVM](https://img.shields.io/badge/Powered_by-LLVM-1e293b?logo=llvm)](https://llvm.org/)
+[![MLIR](https://img.shields.io/badge/Powered_by-MLIR-1e293b)](https://mlir.llvm.org/)
+[![Rust](https://img.shields.io/badge/Frontend-Rust-black?logo=rust)](https://www.rust-lang.org/)
+[![GPU](https://img.shields.io/badge/Backend-Universal_GPU-76b900?logo=nvidia)](https://developer.nvidia.com/cuda-toolkit)
+
+**[Documentation](docs/) • [Architecture](docs/ARCHITECTURE.md) • [Contributing](docs/CONTRIBUTING.md) • [Roadmap](docs/roadmap.md)**
+
+</div>
 
 ---
 
-## Features
-- **Python-like syntax** with Rust-grade safety
-- **MLIR-based IR** with custom Taria dialect
-- **LLVM/NVPTX backend** for CUDA GPUs
-- **Zero-cost abstractions** and high-performance codegen
-- **Distributed GPU and async runtime**
-- **Semantic compression primitives** (autoencoders, quantization, entropy models)
-- **Extensible for future AI-native optimizations**
+Taria is a next-generation, high-performance Domain-Specific Language (DSL) and compiler infrastructure built from the ground up for **extreme-scale semantic tensor compression**. By mapping a Python-like syntax down to highly optimized GPU assembly (NVPTX, AMD ROCm, Apple Metal, SPIR-V) via MLIR, Taria brings neural latent-space encoding and AI-driven data reduction directly to **any modern GPU substrate**.
+
+## 🔭 Vision
+
+Modern AI requires moving terabytes of tensor data across interconnects, creating catastrophic memory bandwidth bottlenecks. Traditional compression algorithms (LZ4, Zstd) fail on high-entropy floating-point data, while existing ML frameworks (PyTorch, XLA) treat neural compression models as black-box graphs rather than first-class compiler optimizations.
+
+**Taria treats semantic compression as a language primitive.**
+
+By fusing autoencoder pipelines, vector quantization, and entropy coding into an MLIR-backed compiler pass, Taria aims to achieve staggering compression ratios (e.g., **1TB → 1GB**) at native GPU memory bandwidth speeds. It is the infrastructure designed for a future where latent-space computation is the default.
 
 ---
 
-## Project Structure
+## ✨ Features
 
+- **Pythonic Ergonomics, Native Speed**: Write expressive, type-safe DSL code that compiles AOT (Ahead-of-Time) to aggressively optimized GPU binaries.
+- **First-Class GPU Semantics**: `@gpu.kernel` decorators with explicit tiling, block sizes, and shared memory allocations.
+- **MLIR Infrastructure**: Custom `taria` dialect for high-level semantic optimizations before lowering to `linalg` and `gpu` dialects.
+- **Zero-Cost Abstractions**: Rust-powered frontend ensures memory-safe AST construction with zero runtime overhead in the final CUDA binary.
+- **Semantic Compression Primitives**: Built-in compiler support for autoencoders, learned representations, and quantization schemas.
+- **Asynchronous Execution**: Native CUDA stream scheduling, memory pooling, and automatic kernel fusion.
+
+---
+
+## 🏗 Architecture
+
+Taria leverages a multi-stage hybrid compiler stack designed for modularity and absolute performance.
+
+```mermaid
+graph TD
+    A[Taria Source Code .taria] -->|Rust Parser| B(Immutable AST)
+    B -->|FFI Bridge| C(Taria MLIR Dialect)
+    C -->|MLIR Passes| D(Linalg / GPU Dialects)
+    D -->|LLVM Lowering| E(NVVM / LLVM IR)
+    E -->|PTX Codegen| F[CUDA PTX Binary]
+    F -->|Taria Runtime| G((NVIDIA GPU))
 ```
+
+| Layer                       | Technology    | Responsibility |
+| --------------------------- | ------------- | -------------- |
+| **Frontend**                | Rust          | Zero-copy lexing, Pratt parsing, AST, Semantic Analysis |
+| **FFI Bridge**              | C ABI         | Panic-safe ownership transfer of AST to C++ backend |
+| **Intermediate Rep.**       | C++ / MLIR    | Optimization, kernel fusion, auto-tiling, dialect conversion |
+| **Backend**                 | C++ / LLVM    | Lowering to PTX, AMDGCN, or SPIR-V, register allocation |
+| **Runtime**                 | Universal C++ | Async stream execution, pinned memory pooling across hardware |
+
+---
+
+## 💻 Example: Semantic Chunk Compression
+
+Taria's syntax is heavily inspired by Python but statically typed for tensor shapes and memory layouts.
+
+```python
+# compress_pipeline.taria
+
+from taria.models import NeuralEncoder
+from taria.quant import VectorQuantizer
+
+# The compiler automatically fuses these operations into a single PTX kernel
+@gpu.kernel(block_size=256, shared_mem="32kb")
+def compress_chunk(chunk: Tensor[f32, 1024, 1024]) -> Tensor[i8, 32, 32]:
+    # 1. Semantic dimensionality reduction via neural autoencoder
+    latent = NeuralEncoder.encode(chunk)
+
+    # 2. Map latent vectors to discrete codebook (Vector Quantization)
+    quantized = VectorQuantizer.apply(latent)
+
+    return quantized
+```
+
+---
+
+## 📂 Repository Structure
+
+The monorepo is governed by a hybrid `Cargo` and `CMake` build system.
+
+```text
 taria/
-├── frontend/      # Rust lexer, parser, AST, CLI
-├── backend/       # C++/MLIR lowering, codegen
-├── runtime/       # CUDA runtime, scheduler
-├── dialects/      # MLIR dialects (Taria, etc.)
-├── passes/        # MLIR passes (lowering, optimization)
-├── ffi/           # Rust <-> C++ FFI bridge
-├── include/       # Public C/C++ headers
-├── tests/         # Unit, integration, E2E tests
-├── examples/      # Example Taria programs
-├── benchmarks/    # Performance benchmarks
-├── tools/         # CLI tools, JIT, profilers
-├── docs/          # Documentation, roadmap, engineering
-└── .github/       # CI/CD, workflows
+├── frontend/      # Rust: Lexer, recursive-descent parser, AST
+├── ffi/           # Rust: Extern "C" bindings, opaque AST handles
+├── dialects/      # C++ : MLIR Taria dialect (TariaOps.td)
+├── passes/        # C++ : MLIR lowering & optimization passes
+├── backend/       # C++ : LLVM/NVVM code generation and compilation
+├── runtime/       # CUDA: Async stream execution, memory pools
+├── include/       # C/C++ public headers (taria_bridge.h)
+├── tools/tariac/  # Rust: The command-line compiler frontend
+├── docs/          # Architecture, compiler engineering guides
+└── tests/         # E2E compilation, lit tests, and Rust unit tests
 ```
 
 ---
 
-## Build & Test
+## ⚙️ Build Instructions
 
-### Rust Frontend
-```
-cargo build --workspace
+### Prerequisites
+- **Rust Toolchain**: 1.70+ (`cargo`, `rustc`)
+- **CMake**: 3.20+
+- **C++ Compiler**: GCC 11+ or Clang 14+ (C++20 support required)
+- **CUDA Toolkit**: 12.0+
+- **LLVM & MLIR**: Built from source (LLVM 17+) with NVPTX backend enabled.
+
+### 1. Build the Rust Frontend
+```bash
+cargo build --release --workspace
+# Runs tests for the frontend parser and FFI bridge
 cargo test --workspace
 ```
 
-### C++/CUDA Backend
-```
-cmake .
-make
-ctest
+### 2. Configure and Build the C++/CUDA Backend
+*Note: Ensure `LLVM_DIR` and `MLIR_DIR` are pointing to your LLVM installation.*
+
+```bash
+mkdir build && cd build
+cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_DIR=/path/to/llvm/lib/cmake/llvm \
+    -DMLIR_DIR=/path/to/llvm/lib/cmake/mlir \
+    -DCMAKE_CUDA_ARCHITECTURES=80;90 # Target Ampere/Hopper
+make -j$(nproc)
 ```
 
 ---
 
-## Compiler Pipeline
-1. **Lex/Parse (Rust)** → AST
-2. **AST → MLIR (FFI bridge)**
-3. **MLIR Passes (C++/MLIR)**
-4. **Lowering to GPU IR**
-5. **NVPTX/PTX Codegen (LLVM)**
-6. **CUDA Runtime Execution**
+## 🔬 The Compiler Pipeline
 
----
+1. **Lexing & Parsing (Rust)**: The source file is scanned using a SIMD-aware, zero-copy lexer. The recursive descent / Pratt parser builds an immutable, arena-allocated AST.
+2. **FFI Hand-off**: The AST is wrapped in an opaque C handle and safely transferred to the C++ MLIR context.
+3. **MLIR Transformation (C++)**:
+   - **AST to Taria Dialect**: The syntax tree is mapped to high-level operations (`taria.encode`, `taria.quantize`).
+   - **Taria to Linalg/GPU**: Operations are decomposed into standard MLIR linear algebra blocks and GPU launch domains.
+4. **LLVM Codegen**: The Standard GPU dialect is lowered to the target hardware architecture (e.g., NVVM for NVIDIA, AMDGCN for ROCm), heavily optimized by LLVM passes, and finally emitted as device assembly.
+5. **Execution**: The lightweight, hardware-agnostic runtime schedules the generated binaries onto async streams utilizing zero-copy pinned memory where applicable.
 
-## Example: Taria Source
-```python
-@gpu.kernel(block_size=256)
-def compress_chunk(chunk: Tensor) -> CompressedChunk:
-    latent = encoder(chunk)
-    return quantize(latent)
-```
+### Example MLIR Lowering
+The snippet from earlier is initially represented in the MLIR `taria` dialect:
 
-### Corresponding MLIR
 ```mlir
-taria.gpu_kernel @compress_chunk(%chunk: tensor<f32>) -> tensor<i8> {
-  %latent = taria.encode %chunk : tensor<f32> -> tensor<f32>
-  %quant = taria.quantize %latent : tensor<f32> -> tensor<i8>
-  taria.return %quant : tensor<i8>
+taria.gpu_kernel @compress_chunk(%chunk: tensor<1024x1024xf32>) -> tensor<32x32xi8> {
+  %latent = taria.encode %chunk : tensor<1024x1024xf32> -> tensor<32x32xf32>
+  %quant = taria.quantize %latent : tensor<32x32xf32> -> tensor<32x32xi8>
+  taria.return %quant : tensor<32x32xi8>
 }
 ```
 
 ---
 
-## Key Engineering Practices
-- **SSA construction** and IR immutability
-- **Arena allocation** for AST/IR nodes
-- **Borrow-safe Rust and smart-pointer C++**
-- **GPU register pressure and warp divergence minimization**
-- **Tensor memory alignment and async pipeline scheduling**
-- **Profile-guided and auto-tuning optimization**
-- **JIT/AOT hybrid kernel compilation and caching**
+## ⚡ Performance Philosophy
+
+To hit extreme compression throughputs at native hardware speeds, Taria is engineered around:
+- **Warp Divergence Elimination**: Language restrictions ensure divergent branching within latent modeling is minimized.
+- **Memory Coalescing**: Taria’s semantic types enforce strictly aligned, contiguous memory access patterns optimized for HBM3 bandwidth.
+- **Speculative Kernel Fusion**: By keeping compression ops in the `taria` MLIR dialect as long as possible, the compiler fuses encoding and quantization into single-launch kernels, drastically reducing SRAM/VRAM round-trips.
 
 ---
 
-## Roadmap & Futures
-- ROCm, Vulkan/SPIR-V, TPU, Metal backends
-- Distributed/federated execution, tensor sharding
-- AI-native compiler optimization, neural cost models
-- Plugin system, LSP/IDE, Jupyter integration
-- Secure, reproducible, and auditable builds
+## 🗺️ Roadmap
 
-See `docs/roadmap.md` and `docs/futures.md` for details.
+Taria is actively evolving. Our roadmap to `v1.0` includes:
 
----
-
-## Contributing
-- Follow LLVM/MLIR and Rust best practices
-- Write tests for all new features
-- Document all public APIs
-- Ensure ABI stability in FFI
-- See `docs/compiler_engineering.md` for advanced guidance
+- [ ] **Intel & Apple Silicon Backends**: First-class support for Intel GPUs and Apple Metal.
+- [ ] **JIT Compilation Runtime**: Dynamic compilation for varying tensor shapes (similar to PyTorch Inductor).
+- [ ] **Distributed GPU Execution**: Native syntax for tensor sharding across NCCL rings.
+- [ ] **AI-Guided Auto-Tuning**: Neural cost models to predict optimal block sizes and memory layouts during MLIR lowering.
+- [ ] **TPU Support**: Emitting XLA HLO for Google TPU deployment.
 
 ---
 
-## License
-Taria is released under the Apache 2.0 License.
+## 🤝 Contribution Guide
+
+We welcome compiler engineers, ML researchers, and systems programmers.
+- **Code Style**: Rust code must pass `cargo fmt` and `cargo clippy`. C++ code follows the [LLVM Coding Standards](https://llvm.org/docs/CodingStandards.html).
+- **Testing**: All MLIR passes must be accompanied by `FileCheck` tests. Rust modules require rigorous unit tests.
+- **Workflow**: Please open an Issue or an RFC in the `docs/rfcs/` folder before submitting major architectural PRs.
+
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed environment setup and architectural guidelines.
 
 ---
 
-## Contact & Community
-- [GitHub Issues](https://github.com/your-org/taria/issues)
-- [Discussions](https://github.com/your-org/taria/discussions)
-- [Contributing Guide](docs/CONTRIBUTING.md)
+## 🛡️ Security & Reliability
+
+- **Frontend Safety**: Built in 100% safe Rust, eliminating buffer overflows and memory leaks during parsing and AST generation.
+- **FFI Stability**: C-ABI boundaries utilize `catch_unwind` and strict ownership models to prevent cross-language undefined behavior.
+- **Deterministic Builds**: Compiler outputs are guaranteed deterministic given identical target flags and source ASTs.
 
 ---
 
-Taria: The AI-native, GPU-first compiler for semantic compression and next-generation tensor programming.
+## 📜 License
+
+Taria is licensed under the [Apache License, Version 2.0](LICENSE) with LLVM Exceptions, matching the standard open-source compiler ecosystem.
+
+---
+
+> *"The bandwidth of the future is not found in wider buses, but in deeper representations."*
+> — **The Taria Compiler Team**

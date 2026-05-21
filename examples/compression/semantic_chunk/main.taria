@@ -1,0 +1,12 @@
+from taria.models import NeuralEncoder
+from taria.quant import VectorQuantizer
+
+@gpu.kernel(block_size=256, shared_mem="64kb")
+def compress_chunk(chunk: Tensor[f32, 1024, 1024], codebook: Tensor[f32, 256, 64]) -> Tensor[i8, 32, 32]:
+    # Semantic dimensionality reduction
+    latent = NeuralEncoder.encode(chunk)
+
+    # Map continuous latent vectors to discrete integer indices via SRAM cached codebook
+    quantized_indices = VectorQuantizer.apply(latent, codebook)
+
+    return quantized_indices

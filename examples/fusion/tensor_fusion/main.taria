@@ -1,0 +1,9 @@
+@gpu.kernel(block_size=512)
+def scale_and_shift(input: Tensor[f32, 1000000], scale: f32, shift: f32) -> Tensor[f32, 1000000]:
+    # In a naive compiler, this generates a temporary tensor `t1`
+    t1 = input * scale
+
+    # This reads `t1`, adds `shift`, and writes to the final output
+    out = t1 + shift
+
+    return out
